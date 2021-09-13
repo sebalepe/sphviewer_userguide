@@ -15,11 +15,14 @@ import matplotlib.animation as animation
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import matplotlib.gridspec as gridspec
 import matplotlib.ticker as ticker
+from matplotlib.colors import LinearSegmentedColormap
+import math
 
 class SnapViewer: #guarda toda la informacion y facilita algunos elementos
     
-    def __init__(self, path):
+    def __init__(self, path='', empty=False):
         self.path = path
+        self.empty = empty
         self.keys = ''
         self.header = None
         self.info = None
@@ -31,19 +34,22 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
         self.init()
         
     def init(self): #guarda todos los datos tomando un path a un archivo en binario
-        self.header, data, self.info = read(self.path)
-        header_keys = f'Header: {list(self.header.keys())}\n\n'
-        data_keys = list(data.keys())
-        ptyp=[data[i] for i in data_keys]
-        ptyp_keys = '\n\n'.join([f'Part Type {i} : {list(ptyp[i].keys())}' for i in range(len(data))])
-        self.keys+= header_keys + ptyp_keys
-        for i in range(len(ptyp)):
-            self.part.append({})
-            for u in list(ptyp[i].keys()):
-                self.part[i][f'{u}'] = ptyp[i][u]
-            self.pos.append(ptyp[i]['Coordinates'])
-            self.mass.append(ptyp[i]['Mass'])
-            self.vels.append(ptyp[i]['Velocity'])
+        if not self.empty:
+            self.header, data, self.info = read(self.path)
+            header_keys = f'Header: {list(self.header.keys())}\n\n'
+            data_keys = list(data.keys())
+            ptyp=[data[i] for i in data_keys]
+            ptyp_keys = '\n\n'.join([f'Part Type {i} : {list(ptyp[i].keys())}' for i in range(len(data))])
+            self.keys+= header_keys + ptyp_keys
+            for i in range(len(ptyp)):
+                self.part.append({})
+                for u in list(ptyp[i].keys()):
+                    self.part[i][f'{u}'] = ptyp[i][u]
+                self.pos.append(ptyp[i]['Coordinates'])
+                self.mass.append(ptyp[i]['Mass'])
+                self.vels.append(ptyp[i]['Velocity'])
+        else:
+            print('Empty SnapViewer')
     
     ##Usefull Functions
     def get_keys(self): #imprime todas las llaves del archivo
@@ -62,12 +68,13 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
         z_new = np.linspace(z_i,z_f, frames)
         return x_new, y_new, z_new
     
-    def centroid(self, pos, cosm=False): #encuentra el centro de masa/ velocidad centro de masa
+    def centroid(self, pos, cosm=False, only_one=False): #encuentra el centro de masa/ velocidad centro de masa
         pos = pos[:]
         mass = self.mass[:]
-        for i in [1,2]:
-            pos.pop(i)
-            mass.pop(i)
+        if not only_one:
+            for i in [1,2]:
+                pos.pop(i)
+                mass.pop(i)
         if cosm:
             pos.pop(1)
             mass.pop(1)
@@ -121,7 +128,7 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
         qv = QuickView(**kwargs)
         return qv
     
-    def particles(self, pos, mass):
+    def particle(self, pos, mass):
         particles = sph.Particles(pos, mass)
         return particles
     
@@ -137,21 +144,43 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
         blend = Blend.Blend(img1, img2)
         return blend
     
+    
     ## Plot Functions
-    def vfield_plot(self, ax,pos,mass,vel, extent, u, x,y,z, v_cm): #genera plot de streamlines de velocidad
+    
+    def cmap_from_image(self, path='', reverse=False):
+        img = imread(path)
+        colors_from_img = img[:, 0, :]
+        if reverse:
+            colors_from_img = colors_from_img[::-1]
+        my_cmap = LinearSegmentedColormap.from_list('my_cmap', colors_from_img, N=280)
+        return my_cmap
+    
+    def cmap_from_list(self, colors, bins=1000 ,name='my_cmap'):
+        cmap = LinearSegmentedColormap.from_list(name, colors, N=bins)
+        return cmap
+    
+    def fix_img(self, img, n=1.23):
+        img1 = np.where(np.isnan(img), n, img)
+        img2 = np.where(img1==-math.inf, n, img1)
+        img3 = np.where(img2==n, np.amin(img2), img2)
+        return img3
+    
+    def vfield_plot(self, ax,pos, mass,vel, extent, u, v_cm): #genera plot de streamlines de velocidad
+        x,y,z = self.centroid(self.pos)
         qv = QuickView(pos, r='infinity', mass=mass, x=x, y=y, z=z, extent=extent, plot=False, logscale=False)
         hsml = qv.get_hsml()
         density_field = qv.get_image()
         vfield = []
-        mt = sum(mass)
         for i in range(2):
-            qv1 = QuickView(pos, mass=(vel[:,i]- v_cm[i])*mt, hsml=hsml, r='infinity', x=x, y=y, z=z,
+            qv1 = QuickView(pos, mass=(vel[:,i]- v_cm[i])*mass[:,0], hsml=hsml, r='infinity', x=x, y=y, z=z,
                            plot=False, extent=extent, logscale=False)
             vfield.append(qv1.get_image() / density_field)
         X = np.linspace(extent[0], extent[1], 500)
-        Y = np.linspace(extent[2], extent[3], 500) 
-        ax.imshow(np.log10(density_field), origin='lower', extent=extent, cmap='bone')
-        v = np.log10(np.sqrt(vfield[0] ** 2 + vfield[1] ** 2))
+        Y = np.linspace(extent[2], extent[3], 500)
+        
+        densy_log = self.fix_img(np.log10(density_field))
+        ax.imshow(densy_log, origin='lower', extent=extent, cmap='bone')
+        v = self.fix_img(np.log10(np.sqrt(vfield[0] ** 2 + vfield[1] ** 2)))
         color = v / np.max(v)
         lw = color * 2
         streams = ax.streamplot(X, Y, vfield[0], vfield[1], color=color,
@@ -166,7 +195,6 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
     def velocity_field(self, extent=[-15,15,-15,15]): #muestra campos de velocidad de todos los part types
         fig = plt.figure(figsize=(20, 20))
         gs = gridspec.GridSpec(nrows=3, ncols=2, height_ratios=[1,1,1])
-        x,y,z = self.centroid(self.pos)
         v_cm = list(self.centroid(self.vels))
         axs = []
         for i in range(3):
@@ -174,7 +202,7 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
                 ax=fig.add_subplot(gs[i, u])
                 axs.append(ax)
         for i in range(len(self.pos)):
-            self.vfield_plot(axs[i],self.pos[i], self.mass[i], self.vels[i], extent, i, x,y,z, v_cm)
+            self.vfield_plot(axs[i], self.pos[i], self.mass[i], self.vels[i], extent, i, v_cm)
         plt.show()
     
     def h2_fraction(self, part, extent=[-15,15,-15,15], r='infinity', zoom=1, focus=None, **kwargs): 
@@ -403,4 +431,21 @@ class SnapEvolution: #para leer multiples snaps
             vmaxs.append(np.max(img2))
         
         return np.mean(vmins), np.mean(vmaxs)
+    
+    def show_images(self, list_images, r, c,sx=30, sy=30, **kwargs):
+        fig = plt.figure(figsize=(sx, sy))
+        gs = gridspec.GridSpec(nrows=r, ncols=c)
+        
+        axs = []
+        for i in range(r):
+            for u in range(c):
+                ax=fig.add_subplot(gs[r, c])
+                axs.append(ax)
+        
+        for i in range(len(list_images)):
+            img = list_images[i]
+            row = ax[i].imshow(img, **kwargs)
+            cbar = fig.colorbar(row, shrink=0.7, ax=ax[i], spacing='proportional')
+        
+        plt.show()
         
