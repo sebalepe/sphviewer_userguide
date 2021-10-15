@@ -8,12 +8,10 @@ from sphviewer.tools import Blend
 import matplotlib.image as mpimg
 from sphviewer.tools import cmaps as cmp
 import cv2
-import numpy as np
 import glob
 import imageio
 import matplotlib.animation as animation
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-import matplotlib.gridspec as gridspec
 import matplotlib.ticker as ticker
 from matplotlib.colors import LinearSegmentedColormap
 import math
@@ -81,47 +79,51 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
         pos = np.concatenate(pos, axis=0)
         mass = np.concatenate(mass, axis=0)
         value = np.sum(pos * mass , axis=0)
-        return value / sum(mass)
+        x,y,z = value / sum(mass)
+        return x, -y, z
     
-    def local_centroid(self, part, tupla, area, vel=False): #encuentra el centro de masa/velocidad del centro de masa
-        indexs = []                                        #de un grupo local a observar 
-        try:
-            p1,p2,p3 = tupla
-        except:
-            p1,p2 = tupla
-            
-        for i in range(len(self.pos[part])):
-            x,y,z = self.pos[part][i]
-            if abs(x - p1) <= area and abs(y - p2) <= area:
-                indexs.append(i)
-        if not vel:
-            pos = np.array([self.pos[part][i] for i in indexs])
-        if vel:
-            pos = np.array([self.vels[part][i] for i in indexs])
+    def local_centroid(self, part, source, area):
+        x, y, z = source
 
-        mass = np.array([self.mass[part][i] for i in indexs])
+        l_x = self.pos[part][:,0]
+        l_y = self.pos[part][:,1]
+        l_z = self.pos[part][:,2]
+
+        d_x = np.abs(l_x - x)
+        d_y = np.abs(l_y - y)
+        d_z = np.abs(l_z - z)
+
+        dis = d_x ** 2 + d_y ** 2 + d_z ** 2
+        
+        indexs = [i for i in range(len(dis)) if dis[i] <= area]
+        
+        pos = np.array([self.pos[0][i] for i in indexs])
+        mass = np.array([self.mass[0][i] for i in indexs])
+
         value = np.sum(pos * mass , axis=0)
-        return value / sum(mass)
+        x,y,z = value / sum(mass)
+        return x, -y, z
     
     def pos_id(self, part, _id): #toma el id de una particula y retorna su posicion
         index = np.where(self.part[part]['ID'] == _id)
         x,y,z = self.pos[part][index[0][0]]
-        return x,y,z
+        return x, -y, z
     
-    def source_id(self, part, pos_tuple): #toma una posicion (x,y) o (x,y,z) y retorna su id
+    def source_id(self, part, source):
         try:
-            x_t,y_t,z_t = pos_tuple
+            x,y,z = source
         except:
-            x_t,y_t = pos_tuple
-        x,y = (0, 0)
-        index = 0
-        for i in range(len(self.pos[part])):
-            x_i, y_i, z_i = self.pos[part][i]
-            if abs(x_i - x_t) <= 0.3 and abs(y_i - y_t) <= 0.3:
-                x,y = (x_i, y_i)
-                index = i
-                break
-        return self.part[part]['ID'][index]
+            x,y = source
+        
+        l_x = self.pos[part][:,0]
+        l_y = self.pos[part][:,1]
+
+        d_x = np.abs(l_x - x)
+        d_y = np.abs(l_y - y)
+
+        dis = d_x ** 2 + d_y ** 2
+        i = np.argmin(dis)
+        return self.part[part]['ID'][i]
     
     ## Funciones de SPH-Viewer
     def quickview(self, **kwargs):
@@ -165,22 +167,20 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
         img3 = np.where(img2==n, np.amin(img2), img2)
         return img3
     
-    def vfield_plot(self, ax,pos, mass,vel, extent, u, v_cm): #genera plot de streamlines de velocidad
-        x,y,z = self.centroid(self.pos)
+    def vfield_plot(self, ax,pos,mass,vel, extent, u, x,y,z, v_cm): #genera plot de streamlines de velocidad
         qv = QuickView(pos, r='infinity', mass=mass, x=x, y=y, z=z, extent=extent, plot=False, logscale=False)
         hsml = qv.get_hsml()
         density_field = qv.get_image()
         vfield = []
+        mt = sum(mass)
         for i in range(2):
-            qv1 = QuickView(pos, mass=(vel[:,i]- v_cm[i])*mass[:,0], hsml=hsml, r='infinity', x=x, y=y, z=z,
+            qv1 = QuickView(pos, mass=(vel[:,i]- v_cm[i])*mt, hsml=hsml, r='infinity', x=x, y=y, z=z,
                            plot=False, extent=extent, logscale=False)
             vfield.append(qv1.get_image() / density_field)
         X = np.linspace(extent[0], extent[1], 500)
-        Y = np.linspace(extent[2], extent[3], 500)
-        
-        densy_log = self.fix_img(np.log10(density_field))
-        ax.imshow(densy_log, origin='lower', extent=extent, cmap='bone')
-        v = self.fix_img(np.log10(np.sqrt(vfield[0] ** 2 + vfield[1] ** 2)))
+        Y = np.linspace(extent[2], extent[3], 500) 
+        ax.imshow(np.log10(density_field), origin='lower', extent=extent, cmap='bone')
+        v = np.log10(np.sqrt(vfield[0] ** 2 + vfield[1] ** 2))
         color = v / np.max(v)
         lw = color * 2
         streams = ax.streamplot(X, Y, vfield[0], vfield[1], color=color,
@@ -195,6 +195,7 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
     def velocity_field(self, extent=[-15,15,-15,15]): #muestra campos de velocidad de todos los part types
         fig = plt.figure(figsize=(20, 20))
         gs = gridspec.GridSpec(nrows=3, ncols=2, height_ratios=[1,1,1])
+        x,y,z = self.centroid(self.pos)
         v_cm = list(self.centroid(self.vels))
         axs = []
         for i in range(3):
@@ -202,54 +203,8 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
                 ax=fig.add_subplot(gs[i, u])
                 axs.append(ax)
         for i in range(len(self.pos)):
-            self.vfield_plot(axs[i], self.pos[i], self.mass[i], self.vels[i], extent, i, v_cm)
+            self.vfield_plot(axs[i],self.pos[i], self.mass[i], self.vels[i], extent, i, x,y,z, v_cm)
         plt.show()
-    
-    def h2_fraction(self, part, extent=[-15,15,-15,15], r='infinity', zoom=1, focus=None, **kwargs): 
-                                                                                         #retorna imagen de fraccion h2
-        if focus is None:
-            x,y,z=self.centroid(self.pos)
-        else:
-            x,y,z = focus
-        try:
-            krome = self.part[part]['speciesKrome']
-            h2 = np.array([krome[i][4] for i in range(len(krome))])
-            mt=sum(self.mass[part])
-            qv_h2 = QuickView(pos=self.pos[0], mass=h2/mt, r=r, x=x,y=y,z=z,
-                  extent=extent, plot=False, logscale=False, **kwargs)
-            return qv_h2.get_image()
-        except:
-            print('Part Type error')
-        
-    def get_abundance_id(self): #imprime los elementos y sus indices de "element abundance"
-        elements = ['3He', '12C', '24Mg', '16O', '56Fe', '28Si', 'H','14N', '20Ne', '32S', '40Ca', '62Zn']
-        for i in range(len(elements)):
-            print(f'{elements[i]}:{i}')
-                  
-    def elm_abundance(self, elm, part, extent=[-15,15,-15,15], r='infinity', focus=None, **kwargs): 
-                                                                #retorna la imagen de element abundance
-        if focus is None:
-            x,y,z = self.centroid(self.pos)
-        else:
-            x,y,z = focus
-        try:
-            abundance = self.part[part]['ElementAbundance']
-            mass_o = np.array([abundance[i][elm] for i in range(len(abundance))])
-            mass_h = np.array([abundance[i][6] for i in range(len(abundance))])
-            qv_o = QuickView(pos=self.pos[part], mass=mass_o, r=r, x=x,y=y,z=z, 
-                             extent=extent, logscale=False, plot=False, **kwargs)
-            qv_h = QuickView(pos=self.pos[part], mass=mass_h, r=r, x=x,y=y,z=z, 
-                             extent=extent, logscale=False, plot=False, **kwargs)
-            qv_n = QuickView(pos=self.pos[part], mass=self.mass[part], r=r, x=x,y=y,z=z, 
-                             extent=extent, logscale=False, plot=False, **kwargs) 
-            img_h = qv_h.get_image()
-            img_n = qv_n.get_image()
-            img_o = qv_o.get_image()
-            img_oxab = 12 + (np.log10(img_o / 16) - np.log10(img_h))
-            return img_oxab
-        except:
-            print('Part Type error')
-        
             
             
 class SnapEvolution: #para leer multiples snaps
@@ -268,7 +223,7 @@ class SnapEvolution: #para leer multiples snaps
                 self.snaps.append(SnapViewer(self.path + str('%03d'%i) + f'{self.format}'))
                 self.files.append(self.path + str('%03d'%i) + f'{self.format}')
             except:
-                pass
+                print('error while adding files')
         
         print(f'{len(self.snaps)} files added')
     
@@ -431,21 +386,4 @@ class SnapEvolution: #para leer multiples snaps
             vmaxs.append(np.max(img2))
         
         return np.mean(vmins), np.mean(vmaxs)
-    
-    def show_images(self, list_images, r, c,sx=30, sy=30, **kwargs):
-        fig = plt.figure(figsize=(sx, sy))
-        gs = gridspec.GridSpec(nrows=r, ncols=c)
-        
-        axs = []
-        for i in range(r):
-            for u in range(c):
-                ax=fig.add_subplot(gs[r, c])
-                axs.append(ax)
-        
-        for i in range(len(list_images)):
-            img = list_images[i]
-            row = ax[i].imshow(img, **kwargs)
-            cbar = fig.colorbar(row, shrink=0.7, ax=ax[i], spacing='proportional')
-        
-        plt.show()
-        
+  
