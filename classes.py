@@ -94,16 +94,12 @@ class SnapViewer: #guarda toda la informacion y facilita algunos elementos
     
     def local_centroid(self, part, source, area):
         x, y, z = source
-
         l_x, l_y, l_z  = self.pos[part][:,0], self.pos[part][:,1], self.pos[part][:,2]
-
         d_x, d_y, d_z = np.abs(l_x - x), np.abs(l_y - y), np.abs(l_z - z)
         dis = np.sqrt(d_x ** 2 + d_y ** 2 + d_z ** 2)
         indexs = [i for i in range(len(dis)) if dis[i] <= area] 
-        
         pos = np.array([self.pos[part][i] for i in indexs])
-        mass = np.array([self.mass[part][i] for i in indexs])
-        
+        mass = np.array([self.mass[part][i] for i in indexs]) 
         value = np.sum(pos * mass , axis=0)
         x,y,z = value / sum(mass)
         return x, -y, z
@@ -327,22 +323,15 @@ class Functions:
         plt.show()
             
     def all_functions(self):
-        functions = [
-        'all_functions()',
-        'init_image()',
-        'end_image()',
+        functions = ['all_functions()', 'init_image()', 'end_image()',
         """show_image(img, extent=None, vmin=None, vmax=None, cmap='magma', label='', l_color='white',
           hori=True, save=False, path='', xlabel='', ylabel='', show_cbar=True, dpi=100)""",
         """hsv_image(imgh=10, imgv=10, extent=None, vminh=None, vmaxh=None, vminv=None, vmaxv=None,
           rgbmin=0, rgbmax=1, xlabel='', ylabel='', xlabel_hsv='', ylabel_hsv='', l_color='w', 
           path='test', save=False, dpi=100)""",
-        'save_gif(path1, path2)',
-        'save_video(path1, path2, fps=15)',
-        'transition(path_img1, path_img2, path_save, frames, index)',
-        'cmap_from_image(path='', reverse=False):',
-        "cmap_from_list(colors, bins=1000 ,name='my_cmap')",
-        'fix_img(img, n=1.23)'
-        ]
+        'save_gif(path1, path2)', 'save_video(path1, path2, fps=15)',
+        'transition(path_img1, path_img2, path_save, frames, index)', 'cmap_from_image(path='', reverse=False):',
+        "cmap_from_list(colors, bins=1000 ,name='my_cmap')",'fix_img(img, n=1.23)']
         [print(i+'\n') for i in functions]
         
     def show_image(self, img, extent=None, vmin=None, vmax=None, cmap='magma', label='', l_color='white',
@@ -385,21 +374,6 @@ class Functions:
     def hsv_image(self, imgh=10, imgv=10, extent=None, vminh=None, vmaxh=None, vminv=None, vmaxv=None,
                   rgbmin=0, rgbmax=1, xlabel='', ylabel='', xlabel_hsv='', ylabel_hsv='', l_color='w', 
                   path='test', save=False, dpi=100):
-        '''
-        imgh: Image colored by the horizontal part of the cmap. Follow a list of colors.
-imgv: Image colored by the vertical part of the cmap. Goes from black to white.
-extent: The extent of the image, None by default.
-vminh: The vmin value for the imgh, np.min(imgh) by default.
-vmaxh: The vmax value for the imgh, np.min(imgh) by default.
-vminv: The vmin value for the imgv, np.min(imgv) by default.
-vmaxv: The vmax value for the imgv, np.min(imgv) by default.
-rgbmin: The min value for the colorlist. Change where it starts. 0 by default.
-rgbmax: The max value for the colorlist. Change where it ends. 1 by default.
-xlabel, ylabel: labels for the x and y axes.
-xlabel_hsv, ylabel_hsv: labels for the x and y axes of the hsv colobar.
-l_color: color of the labels on the hsv colorbar. White by default.
-path, save, dpi=100: Parameters to save the image.
-        '''
         
         if(vminh == None): vminh = np.min(imgh)
         if(vmaxh == None): vmaxh = np.max(imgh)
@@ -508,5 +482,3 @@ path, save, dpi=100: Parameters to save the image.
         img4 = np.where(img3==math.inf, n, img3)
         img5 = np.where(img4==n, np.amax(img4), img4)
         return img5
- 
-   
